@@ -245,6 +245,11 @@ inside the box of the feature release they belong to, so the notes for one relea
       button in edit mode; the docks adapt to their largest widget. [#101]
     - **Raw telemetry view** — the **≡ Raw** button in the top bar lists every telemetry value in
       its raw unit. [#101]
+    - **Chart plotter dashboard** — the **DASH** button in the top bar switches to an instrument
+      column beside the map: a wind rose (heading, true-wind needle, course over ground), a
+      one-minute ground-speed trend,       a mission card (load a file, upload it to the FC — the pilot then selects
+            AUTO / NAV WP) and the Speed widget. The bottom widget dock makes way for it, and the map keeps its centre and
+      corner controls clear of the column. Desktop and tablets.
     - **Update and Restart** — the update notice shows the release notes and installs the new
       version in place. [#162]
     - **Patch releases only** — an update channel that offers bug-fix releases of the running

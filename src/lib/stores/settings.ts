@@ -401,6 +401,9 @@ export interface AppSettings {
   miniMapHeadingUp: boolean;
   navPanelOpen: boolean;
   activeTab: string;
+  /** Kip-style chart plotter mode: the map gets the left side and a dashboard column the right
+   *  (wind rose, one-minute speed trend, large speed/altitude readouts). Toggled in the toolbar. */
+  chartPlotter: boolean;
   // Telemetry poll rates
   attitudeRateHz: number;
   positionRateHz: number;
@@ -522,6 +525,7 @@ const defaults: AppSettings = {
   miniMapHeadingUp: true,
   navPanelOpen: true,
   activeTab: 'uav-info',
+  chartPlotter: false,
   attitudeRateHz: 5,
   positionRateHz: 2,
   airspeedEnabled: true,

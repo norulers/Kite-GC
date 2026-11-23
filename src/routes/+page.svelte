@@ -111,6 +111,7 @@
   import { weatherTempDisplayFromC, weatherWindDisplayFromMs, weatherTempCFromDisplay, weatherWindMsFromDisplay, canonicalWeatherDescription } from "$lib/helpers/weather";
   import type { TileCacheStats } from "$lib/cache/tileCache";
   import WidgetPanel from "$lib/components/WidgetPanel.svelte";
+  import ChartPlotterDashboard from "$lib/components/dashboard/ChartPlotterDashboard.svelte";
   import VideoBackdropMap from "$lib/components/video/VideoBackdropMap.svelte";
   import { LARGE_BASE_VMIN } from "$lib/config/widgetRegistry";
   import FloatingVideoWindow from "$lib/components/video/FloatingVideoWindow.svelte";
@@ -150,9 +151,18 @@
   import { modeCategory } from "$lib/helpers/flightModeRegistry";
 
   // ── Layout zone CSS custom properties (driven by layout store) ──
+  /** Chart plotter mode (toolbar toggle, persisted): map left, Kip-style instrument column right.
+   *  The phone's chrome is its own widget column, so the mode is desktop/tablet only. */
+  const chartPlotter = $derived(!isPhoneDevice && !!$settings.chartPlotter);
   const gridSideWidth = $derived(
-    $layout.sideDock.sizeOverride ?? GRID_DEFAULTS.sideDockWidth
+    chartPlotter
+      ? 'clamp(330px, 38vw, 620px)'
+      : ($layout.sideDock.sizeOverride ?? GRID_DEFAULTS.sideDockWidth)
   );
+
+  function toggleChartPlotter() {
+    settings.patch({ chartPlotter: !$settings.chartPlotter });
+  }
 
   // Map view mode: 2D (Leaflet) or 3D (CesiumJS)
   let mapViewMode = $state<'2d' | '3d'>('2d');
@@ -383,6 +393,10 @@
    *  bottom tiles keep clear of it (PHONE_BOTTOM_WIDGETS.md B4). */
   const NAV_RAIL_RIGHT_PX = 54;
   const phoneMapInsetBottom = $derived(phoneUi && !mapInFrame && phoneBarH > 0 ? phoneBarH + 8 : 0);
+  // The chart plotter dashboard covers the right edge exactly like the phone's widget column →
+  // shift the map centre (and its corner controls / attribution, which read the same inset) clear
+  // of it. Never inside the floating-window / widget-tile map: nothing covers those.
+  const mapInsetRight = $derived(phoneUi ? phoneMapInset : chartPlotter && !mapInFrame ? sideDockW : 0);
   // Full-screen map box, rounded to whole px (issue #52): the CSS fallback `calc(53px * scale)`
   // lands on fractions at uiScale 1.25/1.5 (66.25px / 79.5px), which is what leaked tile seams —
   // see mapFrameStyle above for the mechanism. The map sliding ≤ half a px under the toolbar edge
@@ -3833,7 +3847,7 @@
         onToggleMapView={toggleMapView}
         bind:viewMode={map2dViewMode}
         miniControls={miniMapLocked}
-        centerInsetRight={phoneMapInset}
+        centerInsetRight={mapInsetRight}
         centerInsetBottom={phoneMapInsetBottom}
         radarActive={radarSettings.enabled}
         radarMapSettings={radarSettings.map}
@@ -3845,7 +3859,7 @@
     {#if map3dEverOpened}
       <div class="map3d-layer" class:active={mapViewMode === '3d'}>
         <Map3D
-          centerInsetRight={phoneMapInset}
+          centerInsetRight={mapInsetRight}
           centerInsetBottom={phoneMapInsetBottom}
           bind:this={map3dRef}
           active={mapViewMode === '3d'}
@@ -3952,6 +3966,7 @@
 <main
   class="app"
   class:rc-sticks-active={isMobile && activeTab === 'rc-control'}
+  class:chart-plotter={chartPlotter}
   style:--grid-bottom-height={gridBottomHeight}
   style:--grid-side-width={gridSideWidth}
   style:--panel-bottom-reserve={panelBottomReserve}
@@ -4053,6 +4068,8 @@
     onOpenRc={() => selectTab('rc-control')}
     onRescanBle={bleScanWindow}
     fleetEnabled={$fleetEnabled}
+    chartPlotter={chartPlotter}
+    onToggleChartPlotter={toggleChartPlotter}
   />
     <RelayPanel open={relayPanelOpen} />
   </div>
@@ -4198,6 +4215,9 @@
 
   {#if !phoneUi}
   <!-- ======= BOTTOM WIDGET PANEL ======= -->
+  <!-- Chart plotter mode: the dashboard column and the map take the height, so the HUD dock is
+       unmounted (its grid row collapses to 0 in the chart-plotter template below). -->
+  {#if !chartPlotter}
   <div class="zone-bottom-dock" class:zone-hidden={!$layout.bottomDock.visible} class:panel-editing={widgetEditMode} bind:this={bottomDockEl} bind:clientWidth={bottomDockW} bind:clientHeight={bottomDockH} style:padding-left="{videoReserveDock}px">
     <div class="panel-bottom-wrap">
       <!-- Edit mode (both docks share it): entered by a long-press on a widget, left by a click
@@ -4221,29 +4241,34 @@
       />
     </div>
   </div>
+  {/if}
 
   <!-- ======= FLOATING VIDEO WINDOW (+ its show/hide toggle) ======= -->
   <FloatingVideoWindow left={floatLeft} top={floatTop} width={floatW} height={floatH} vw={logicalW} vh={logicalH} />
 
-  <!-- ======= RIGHT WIDGET PANEL ======= -->
-  <div class="zone-side-dock" class:zone-hidden={!$layout.sideDock.visible} class:panel-editing={widgetEditMode} bind:clientWidth={sideDockW} bind:clientHeight={sideDockH}>
-    <WidgetPanel
-      widgetIds={panels.right}
-      orientation="vertical"
-      availableVmin={rightAvailUnits}
-      pxPerVmin={sidePxPerUnit}
-      smallBoost={isTablet ? 1.4 : 1}
-      sizes={panels.sizes ?? {}}
-      bind:crossPx={sidePanelCrossPx}
-      {telem}
-      bind:editing={widgetEditMode}
-      {interfaceSettings}
-      onreorder={handleReorder}
-      onreceive={handleReceive}
-      onresize={handleResize}
-      onwidgettap={handleWidgetTap}
-      panelId="right"
-    />
+  <!-- ======= RIGHT DOCK — chart plotter dashboard, or the widget column ======= -->
+  <div class="zone-side-dock" class:zone-hidden={!$layout.sideDock.visible && !chartPlotter} class:chart-plotter={chartPlotter} class:panel-editing={widgetEditMode} bind:clientWidth={sideDockW} bind:clientHeight={sideDockH}>
+    {#if chartPlotter}
+      <ChartPlotterDashboard {telem} {interfaceSettings} />
+    {:else}
+      <WidgetPanel
+        widgetIds={panels.right}
+        orientation="vertical"
+        availableVmin={rightAvailUnits}
+        pxPerVmin={sidePxPerUnit}
+        smallBoost={isTablet ? 1.4 : 1}
+        sizes={panels.sizes ?? {}}
+        bind:crossPx={sidePanelCrossPx}
+        {telem}
+        bind:editing={widgetEditMode}
+        {interfaceSettings}
+        onreorder={handleReorder}
+        onreceive={handleReceive}
+        onresize={handleResize}
+        onwidgettap={handleWidgetTap}
+        panelId="right"
+      />
+    {/if}
   </div>
 
   <!-- ======= MAP CONTROLS RESERVED AREA ======= -->
@@ -4592,6 +4617,18 @@
       "status-bar   status-bar   status-bar   status-bar";
   }
 
+  /* Chart plotter mode (Kip-inspired): the bottom dock is unmounted and its row collapses, so the
+     side dock — now the instrument dashboard — spans the full height below the toolbar. Map left,
+     instruments right, exactly like Kip's chart plotter view. */
+  .app.chart-plotter {
+    grid-template-rows: 53px 1fr 0 24px;
+    grid-template-areas:
+      "toolbar      toolbar      toolbar      toolbar"
+      "nav-rail     panel        side-dock    side-dock"
+      "nav-rail     map-controls side-dock    side-dock"
+      "status-bar   status-bar   status-bar   status-bar";
+  }
+
   /* The chrome layer sits ABOVE the unzoomed map, so its empty centre must let pointer
      events fall through to the map (pan/zoom/Leaflet controls + the WP editor popup,
      which is part of the map). BOTH `.ui-scale` (the parent covering the viewport) and
@@ -4627,6 +4664,9 @@
      push the top-anchored map/video/toast layers down to match so nothing hides under the status bar. */
   :global(html.is-mobile) .app {
     grid-template-rows: calc(53px + var(--safe-top, 0px)) 1fr var(--grid-bottom-height) 24px;
+  }
+  :global(html.is-mobile) .app.chart-plotter {
+    grid-template-rows: calc(53px + var(--safe-top, 0px)) 1fr 0 24px;
   }
   :global(html.is-mobile) .zone-toolbar {
     padding-top: var(--safe-top, 0px);
@@ -5007,6 +5047,19 @@
 
   .zone-side-dock > :global(*) {
     pointer-events: auto;
+  }
+
+  /* Chart plotter dashboard fills the whole column (no centring / end alignment like the widget
+     strip), hugging the window edges like Kip's instrument panel. */
+  .zone-side-dock.chart-plotter {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 6px 6px 6px 0;
+  }
+  .zone-side-dock.chart-plotter > :global(*) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
   }
 
   .zone-map-controls {

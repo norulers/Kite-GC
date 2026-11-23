@@ -44,6 +44,8 @@
     onOpenRc,
     onRescanBle,
     fleetEnabled = false,
+    chartPlotter = false,
+    onToggleChartPlotter,
   }: {
     appVersion: string;
     /** False while the map is the Video widget's mini map: a jump would go nowhere, so no search then. */
@@ -75,6 +77,10 @@
     onRescanBle?: () => void;
     /** Fleet feature gate (`--fleet` launch flag, stores/fleetMode): off = no link manager / multi-connect. */
     fleetEnabled?: boolean;
+    /** Chart plotter mode is active (map left, instrument column right). */
+    chartPlotter?: boolean;
+    /** Toggle the chart plotter mode (no-op on the phone, which has no toolbar). */
+    onToggleChartPlotter?: () => void;
   } = $props();
 
   // Sensor-health bar: one tile per sensor the airframe reports (helpers/sensorHealth.ts — shared
@@ -299,6 +305,20 @@
     <!-- Map search: left of the protocol selector (of the connection status once connected). Its
          line opens as an overlay to the left, so the bar's collapse measurement is unaffected. -->
     {#if mapSearchAvailable}<MapSearch variant="toolbar" />{/if}
+    <!-- Chart plotter mode: map left, instrument column right (Kip-inspired). -->
+    <button
+      class="relay-toggle chart-toggle"
+      class:open={chartPlotter}
+      onclick={() => onToggleChartPlotter?.()}
+      title={chartPlotter ? $t('chartPlotter.toggleOff') : $t('chartPlotter.toggleOn')}
+      aria-pressed={chartPlotter}
+    >
+      <svg class="chart-toggle-icon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+        <path d="M1.5 13.5h13M2.8 13.5V9M6.2 13.5V5M9.8 13.5V7.2M13.2 13.5V3.5"
+              fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+      </svg>
+      {$t('chartPlotter.short')}
+    </button>
     {#if !connOnSecondRow}
       <div class="port-controls">{@render connectionControls()}</div>
     {/if}
@@ -638,6 +658,18 @@
     background: rgba(55, 168, 219, 0.22);
     border-color: #37a8db;
     color: #37a8db;
+  }
+  .chart-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .chart-toggle-icon {
+    flex: none;
+  }
+  /* The phone has no chart plotter layout (its chrome is the widget column). */
+  :global(html.is-phone) .chart-toggle {
+    display: none;
   }
 
 </style>
