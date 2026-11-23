@@ -420,6 +420,11 @@ inside the box of the feature release they belong to, so the notes for one relea
       button in edit mode; the docks adapt to their largest widget. [#101]
     - **Raw telemetry view** — the **≡ Raw** button in the top bar lists every telemetry value in
       its raw unit. [#101]
+    - **Chart plotter dashboard** — the **DASH** button in the top bar switches to an instrument
+      column beside the map: a wind rose (heading, true-wind needle, course over ground), a
+      one-minute ground-speed trend,       a mission card (load a file, upload it to the FC — the pilot then selects
+            AUTO / NAV WP) and the Speed widget. The bottom widget dock makes way for it, and the map keeps its centre and
+      corner controls clear of the column. Desktop and tablets.
     - **Update and Restart** — the update notice shows the release notes and installs the new
       version in place. [#162]
     - **Patch releases only** — an update channel that offers bug-fix releases of the running
@@ -521,6 +526,10 @@ inside the box of the feature release they belong to, so the notes for one relea
 
     - **Network links: an empty host means this device.** The host field starts empty with a
       `localhost` hint; left empty, Kite connects to `127.0.0.1`. [#237]
+    - **A network link reopens by itself at startup.** *Settings → Interface → UI → Auto-connect
+      TCP/UDP* (on by default) restores the last UDP or TCP link when Kite starts, so a restarted
+      ground station is back on the vehicle without a click. Serial and Bluetooth stay manual — their
+      port has to be present first — and it is one attempt only.
     - **The network port follows the protocol.** MAVLink offers UDP 14550 or TCP 5760 and MSP
       offers TCP 5761. A port you typed yourself is never touched. [#151]
     - **The diagnostics log has a size limit** — a day's log file stops at 50 MB and is kept; the
@@ -559,6 +568,11 @@ inside the box of the feature release they belong to, so the notes for one relea
     - **Live AGL: the projected flight line is smoother**, and the compass and horizon have the
       frosted-glass look of the other widgets. [#101]
     - **The second battery widget is labelled "BAT 2".** [#237]
+    - **Widgets for a twin-motor boat: tap the Speed widget** to switch its two side bars from
+      throttle and acceleration to **left/right thrust** — one per flight-controller output (S1–S8),
+      bipolar around the 1500 µs neutral. **Tap the Battery widget** to take its voltage from one
+      **ESC's telemetry** instead of the flight controller's battery sensor; only the voltage is shown
+      then. Needs ArduPilot (ESC telemetry — BLHeli32, or a VESC over DroneCAN); INAV reports neither.
 
     **Fixed**
 

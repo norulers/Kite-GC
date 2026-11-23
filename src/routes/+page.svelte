@@ -52,6 +52,8 @@
   import type { LibraryMission } from "$lib/stores/flightlogTypes";
   import DbUpgradeNotice from "$lib/components/DbUpgradeNotice.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import SpeedWidgetSettings from "$lib/components/widgets/SpeedWidgetSettings.svelte";
+  import BatteryWidgetSettings from "$lib/components/widgets/BatteryWidgetSettings.svelte";
   import BatchEditPopup from "$lib/components/mission/BatchEditPopup.svelte";
   import ArduBatchEditPopup from "$lib/components/mission/ArduBatchEditPopup.svelte";
   import type { DialogButton, DialogOptions } from "$lib/components/ConfirmDialog.svelte";
@@ -126,6 +128,7 @@
   import { weatherTempDisplayFromC, weatherWindDisplayFromMs, weatherTempCFromDisplay, weatherWindMsFromDisplay, canonicalWeatherDescription } from "$lib/helpers/weather";
   import type { TileCacheStats } from "$lib/cache/tileCache";
   import WidgetPanel from "$lib/components/WidgetPanel.svelte";
+  import ChartPlotterDashboard from "$lib/components/dashboard/ChartPlotterDashboard.svelte";
   import VideoBackdropMap from "$lib/components/video/VideoBackdropMap.svelte";
   import { LARGE_BASE_VMIN } from "$lib/config/widgetRegistry";
   import FloatingVideoWindow from "$lib/components/video/FloatingVideoWindow.svelte";
@@ -165,9 +168,18 @@
   import { modeCategory } from "$lib/helpers/flightModeRegistry";
 
   // ── Layout zone CSS custom properties (driven by layout store) ──
+  /** Chart plotter mode (toolbar toggle, persisted): map left, Kip-style instrument column right.
+   *  The phone's chrome is its own widget column, so the mode is desktop/tablet only. */
+  const chartPlotter = $derived(!isPhoneDevice && !!$settings.chartPlotter);
   const gridSideWidth = $derived(
-    $layout.sideDock.sizeOverride ?? GRID_DEFAULTS.sideDockWidth
+    chartPlotter
+      ? 'clamp(330px, 38vw, 620px)'
+      : ($layout.sideDock.sizeOverride ?? GRID_DEFAULTS.sideDockWidth)
   );
+
+  function toggleChartPlotter() {
+    settings.patch({ chartPlotter: !$settings.chartPlotter });
+  }
 
   // Map view mode: 2D (Leaflet) or 3D (CesiumJS)
   let mapViewMode = $state<'2d' | '3d'>('2d');
@@ -410,6 +422,10 @@
    *  bottom tiles keep clear of it (PHONE_BOTTOM_WIDGETS.md B4). */
   const NAV_RAIL_RIGHT_PX = 54;
   const phoneMapInsetBottom = $derived(phoneUi && !mapInFrame && phoneBarH > 0 ? phoneBarH + 8 : 0);
+  // The chart plotter dashboard covers the right edge exactly like the phone's widget column →
+  // shift the map centre (and its corner controls / attribution, which read the same inset) clear
+  // of it. Never inside the floating-window / widget-tile map: nothing covers those.
+  const mapInsetRight = $derived(phoneUi ? phoneMapInset : chartPlotter && !mapInFrame ? sideDockW : 0);
   // Full-screen map box rounded to whole px (see mapFrameStyle): the CSS fallback `calc(53px * scale)` lands
   // on fractions at uiScale 1.25/1.5 and leaks tile seams. Map.svelte's ResizeObserver handles the resize.
   const mapLayerStyle = $derived(
@@ -3179,6 +3195,21 @@
     }
   }
 
+  /** Startup auto-connect (Settings → Interface → UI): a TCP/UDP link is a fixed, stored target, so
+   *  Kite reopens the last one by itself and a restarted GCS is back on the vehicle without a click.
+   *  Serial and BLE stay manual — their port / device has to be present first. One attempt only: with
+   *  the vehicle still powered down it fails visibly (the connection error banner) instead of looping
+   *  in the background, and the pilot presses Connect once the vehicle is up. */
+  async function autoConnectNetworkOnStartup(): Promise<void> {
+    if (!get(settings).autoConnectNetwork) return;
+    // The stored transport, not the resolved one: a dropped serial value (no ports on iOS) must not
+    // turn into an auto-connect to the mobile default UDP target.
+    if (saved.lastTransport !== 'tcp' && saved.lastTransport !== 'udp') return;
+    if (get(connection).status !== 'disconnected' || isConnecting) return; // a recovered link wins
+    console.log(`[connect] startup auto-connect: ${startupProtocol} over ${saved.lastTransport} → ${netHostOrLocal(tcpHost)}:${tcpPort}`);
+    await handleConnect();
+  }
+
   async function initPage() {
     await startBleDeviceListener(); // live BLE discovery → bleDevices store
     void initTrainerHandover(showDialog);
@@ -3187,8 +3218,11 @@
     // recorded" notice of a fleet session without group recording.
     void loadFleetMode().then(startFleetRecordingNotice);
     // Links the backend still holds (page reload / a UI state that drifted) → show them as connected.
-    void recoverBackendLinks().catch((e) => {
+    // Kept a promise (not awaited here) so the lookups below still run in parallel; the auto-connect
+    // waits for it, because a recovered link must win over a fresh connect.
+    const recovered = recoverBackendLinks().catch((e) => {
       void invoke('log_frontend', { level: 'warn', area: 'ui', message: `recoverBackendLinks failed at start-up: ${e}` }).catch(() => {});
+      return false;
     });
     try {
       defaultFlightLogPath = await getDefaultFlightlogPath();
@@ -3204,6 +3238,8 @@
       // After a failed upgrade a load would run the backup again, on the main thread.
       if ((await dbUpgradeOutcome) !== 'failed') await loadLogbook();
     }
+    await recovered;
+    await autoConnectNetworkOnStartup();
   }
 
   initPage();
@@ -3221,6 +3257,14 @@
   function handleResize(widgetId: string) {
     panels = widgetCtrl.cycleWidgetSize(panels, widgetId);
     settings.patch({ panels });
+  }
+
+  // A tap on a widget opens its own settings (Speed: differential thrust; Battery: voltage source).
+  // The widget's rect anchors the popover above it.
+  let widgetCfg = $state<{ id: string; rect: DOMRect } | null>(null);
+  function handleWidgetTap(widgetId: string, rect: DOMRect): void {
+    if (widgetId !== 'speed' && widgetId !== 'battery' && widgetId !== 'battery2') return;
+    widgetCfg = { id: widgetId, rect };
   }
 
   // ── Phone widget grid (Dev-Docs active/PHONE_UI.md D13) — its own config, its own rules ──
@@ -4168,7 +4212,7 @@
         onToggleMapView={toggleMapView}
         bind:viewMode={map2dViewMode}
         miniControls={miniMapLocked}
-        centerInsetRight={phoneMapInset}
+        centerInsetRight={mapInsetRight}
         centerInsetBottom={phoneMapInsetBottom}
         radarActive={radarSettings.enabled}
         radarMapSettings={radarSettings.map}
@@ -4180,7 +4224,7 @@
     {#if map3dEverOpened}
       <div class="map3d-layer" class:active={mapViewMode === '3d'}>
         <Map3D
-          centerInsetRight={phoneMapInset}
+          centerInsetRight={mapInsetRight}
           centerInsetBottom={phoneMapInsetBottom}
           bind:this={map3dRef}
           active={mapViewMode === '3d'}
@@ -4286,6 +4330,7 @@
 <main
   class="app"
   class:rc-sticks-active={isMobile && activeTab === 'rc-control'}
+  class:chart-plotter={chartPlotter}
   style:--grid-bottom-height={gridBottomHeight}
   style:--grid-side-width={gridSideWidth}
   style:--panel-bottom-reserve={panelBottomReserve}
@@ -4323,6 +4368,7 @@
       onresize={(id) => patchPhoneWidgets(phoneCtrl.cyclePhoneWidgetSize(phoneWidgets, id))}
       onmove={phoneMoveToColumn}
       onmovetobottom={phoneMoveToBottom}
+      onwidgettap={handleWidgetTap}
       bind:widthPx={phonePanelW}
     />
   </div>
@@ -4386,6 +4432,8 @@
     onOpenRc={() => selectTab('rc-control')}
     onRescanBle={bleScanWindow}
     fleetEnabled={$fleetEnabled}
+    chartPlotter={chartPlotter}
+    onToggleChartPlotter={toggleChartPlotter}
   />
     <RelayPanel open={relayPanelOpen} />
   </div>
@@ -4525,6 +4573,9 @@
 
   {#if !phoneUi}
   <!-- ======= BOTTOM WIDGET PANEL ======= -->
+  <!-- Chart plotter mode: the dashboard column and the map take the height, so the HUD dock is
+       unmounted (its grid row collapses to 0 in the chart-plotter template below). -->
+  {#if !chartPlotter}
   <div class="zone-bottom-dock" class:zone-hidden={!$layout.bottomDock.visible} class:panel-editing={widgetEditMode} bind:this={bottomDockEl} bind:clientWidth={bottomDockW} bind:clientHeight={bottomDockH} style:padding-left="{videoReserveDock}px">
     <div class="panel-bottom-wrap">
       <!-- Edit mode (both docks share it): entered by a long-press on a widget, left by a click
@@ -4544,33 +4595,40 @@
         onreorder={handleReorder}
         onreceive={handleReceive}
         onresize={handleResize}
+        onwidgettap={handleWidgetTap}
         panelId="bottom"
       />
     </div>
   </div>
+  {/if}
 
   <!-- ======= FLOATING VIDEO WINDOW (+ its show/hide toggle) ======= -->
   <FloatingVideoWindow left={floatLeft} top={floatTop} width={floatW} height={floatH} vw={logicalW} vh={logicalH} />
 
-  <!-- ======= RIGHT WIDGET PANEL ======= -->
-  <div class="zone-side-dock" class:zone-hidden={!$layout.sideDock.visible} class:panel-editing={widgetEditMode} bind:clientWidth={sideDockW} bind:clientHeight={sideDockH}>
-    <WidgetPanel
-      widgetIds={panels.right}
-      orientation="vertical"
-      availableVmin={rightAvailUnits}
-      pxPerVmin={sidePxPerUnit}
-      smallBoost={isTablet ? 1.4 : 1}
-      sizes={panels.sizes ?? {}}
-      idleIds={idleWidgetIds}
-      bind:crossPx={sidePanelCrossPx}
-      telem={widgetTelem}
-      bind:editing={widgetEditMode}
-      {interfaceSettings}
-      onreorder={handleReorder}
-      onreceive={handleReceive}
-      onresize={handleResize}
-      panelId="right"
-    />
+  <!-- ======= RIGHT DOCK — chart plotter dashboard, or the widget column ======= -->
+  <div class="zone-side-dock" class:zone-hidden={!$layout.sideDock.visible && !chartPlotter} class:chart-plotter={chartPlotter} class:panel-editing={widgetEditMode} bind:clientWidth={sideDockW} bind:clientHeight={sideDockH}>
+    {#if chartPlotter}
+      <ChartPlotterDashboard telem={widgetTelem} {interfaceSettings} />
+    {:else}
+      <WidgetPanel
+        widgetIds={panels.right}
+        orientation="vertical"
+        availableVmin={rightAvailUnits}
+        pxPerVmin={sidePxPerUnit}
+        smallBoost={isTablet ? 1.4 : 1}
+        sizes={panels.sizes ?? {}}
+        idleIds={idleWidgetIds}
+        bind:crossPx={sidePanelCrossPx}
+        telem={widgetTelem}
+        bind:editing={widgetEditMode}
+        {interfaceSettings}
+        onreorder={handleReorder}
+        onreceive={handleReceive}
+        onresize={handleResize}
+        onwidgettap={handleWidgetTap}
+        panelId="right"
+      />
+    {/if}
   </div>
 
   <!-- ======= MAP CONTROLS RESERVED AREA ======= -->
@@ -4657,6 +4715,7 @@
             userLocation={$userGeoLocation}
             onGeoCheck={requestUserLocation}
             defaultProtocol={$settings.defaultProtocol}
+            autoConnectNetwork={$settings.autoConnectNetwork}
             {attitudeRateHz}
             {positionRateHz}
             {airspeedEnabled}
@@ -4822,6 +4881,11 @@
   <ContextMenu />
   <BatchEditPopup {interfaceSettings} />
   <ArduBatchEditPopup />
+  {#if widgetCfg?.id === 'speed'}
+    <SpeedWidgetSettings rect={widgetCfg.rect} onclose={() => (widgetCfg = null)} />
+  {:else if widgetCfg}
+    <BatteryWidgetSettings widgetId={widgetCfg.id} rect={widgetCfg.rect} onclose={() => (widgetCfg = null)} />
+  {/if}
 </div><!-- .ui-root -->
 
 <style>
@@ -4927,6 +4991,18 @@
       "status-bar   status-bar   status-bar   status-bar";
   }
 
+  /* Chart plotter mode (Kip-inspired): the bottom dock is unmounted and its row collapses, so the
+     side dock — now the instrument dashboard — spans the full height below the toolbar. Map left,
+     instruments right, exactly like Kip's chart plotter view. */
+  .app.chart-plotter {
+    grid-template-rows: 53px 1fr 0 24px;
+    grid-template-areas:
+      "toolbar      toolbar      toolbar      toolbar"
+      "nav-rail     panel        side-dock    side-dock"
+      "nav-rail     map-controls side-dock    side-dock"
+      "status-bar   status-bar   status-bar   status-bar";
+  }
+
   /* The chrome sits ABOVE the unzoomed map, so its empty centre must pass pointer events through —
      BOTH `.ui-scale` and `.app`, or the parent eats them. Solid children re-capture; the widget docks
      + map-controls stay click-through so the map drags under them. */
@@ -4959,6 +5035,9 @@
      push the top-anchored map/video/toast layers down to match so nothing hides under the status bar. */
   :global(html.is-mobile) .app {
     grid-template-rows: calc(53px + var(--safe-top, 0px)) 1fr var(--grid-bottom-height) 24px;
+  }
+  :global(html.is-mobile) .app.chart-plotter {
+    grid-template-rows: calc(53px + var(--safe-top, 0px)) 1fr 0 24px;
   }
   :global(html.is-mobile) .zone-toolbar {
     padding-top: var(--safe-top, 0px);
@@ -5320,6 +5399,19 @@
 
   .zone-side-dock > :global(*) {
     pointer-events: auto;
+  }
+
+  /* Chart plotter dashboard fills the whole column (no centring / end alignment like the widget
+     strip), hugging the window edges like Kip's instrument panel. */
+  .zone-side-dock.chart-plotter {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 6px 6px 6px 0;
+  }
+  .zone-side-dock.chart-plotter > :global(*) {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
   }
 
   .zone-map-controls {

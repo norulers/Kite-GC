@@ -319,6 +319,32 @@ export const DEFAULT_TELEMETRY_API: TelemetryApiSettings = {
  *  overrides that stored choice on every launch. */
 export type DefaultProtocol = 'last' | 'msp' | 'mavlink' | 'telemetry';
 
+// ── Speed widget (differential thrust) ────────────────────────────────────────────────────────────
+/** A dual-motor boat has no use for a throttle + acceleration pair — it needs the thrust of each
+ *  side. Both come from the FC's servo/motor outputs (MAVLink `SERVO_OUTPUT_RAW`), so the config is
+ *  just the two output numbers (1-based, S1..S8) plus the switch. */
+export interface SpeedWidgetSettings {
+  /** Show left/right thrust bars instead of throttle + acceleration. */
+  diffThrust: boolean;
+  /** Servo output carrying the left motor's thrust (1 = S1). */
+  left: number;
+  /** Servo output carrying the right motor's thrust (1 = S1). */
+  right: number;
+}
+
+export const DEFAULT_SPEED_WIDGET: SpeedWidgetSettings = {
+  diffThrust: false,
+  left: 1,
+  right: 3,
+};
+
+/** One servo output number from a stored profile: an integer 1..8, else the default. */
+function servoOutputNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 8
+    ? Math.round(value)
+    : fallback;
+}
+
 // ── Update check (GitHub releases — see controllers/updateCheck.ts) ─────────────────────────────────
 /** Update-check channel: off, stable releases, patch releases of the running minor only, or include
  *  pre-releases. Default `release`. */
@@ -349,6 +375,9 @@ export interface AppSettings {
   lastProtocol: string;
   /** Startup protocol preference (Settings → Interface → UI). `last` = restore `lastProtocol`. */
   defaultProtocol: DefaultProtocol;
+  /** Reopen a stored TCP/UDP link by itself on startup (Settings → Interface → UI). Serial and BLE
+   *  stay manual: their port / device has to be present first. One attempt — no retry loop. */
+  autoConnectNetwork: boolean;
   // Full last-used connection path (restored on startup so nothing has to be re-entered)
   lastTransport: string;
   lastHost: string;
@@ -375,6 +404,9 @@ export interface AppSettings {
   miniMapHeadingUp: boolean;
   navPanelOpen: boolean;
   activeTab: string;
+  /** Kip-style chart plotter mode: the map gets the left side and a dashboard column the right
+   *  (wind rose, one-minute speed trend, large speed/altitude readouts). Toggled in the toolbar. */
+  chartPlotter: boolean;
   // Telemetry poll rates
   attitudeRateHz: number;
   positionRateHz: number;
@@ -419,6 +451,13 @@ export interface AppSettings {
   /** Per-widget battery selection: 'auto' or an instance id (as a string). Keyed by widget id
    *  ('battery' / 'battery2'). Lets each battery widget pin a specific pack. See MULTI_BATTERY.md. */
   batterySelect: Record<string, string>;
+  /** Per-widget battery VOLTAGE source: 'fc' (the FC's own battery monitor, default) or 'esc:<n>'
+   *  for one ESC's telemetry (ArduPilot ESC_TELEMETRY — BLHeli32, or a VESC over DroneCAN). A boat
+   *  with two ESCs and no battery monitor reads its pack voltage from one of them. */
+  batteryVoltageSource: Record<string, string>;
+  /** Speed widget: differential-thrust display for a dual-motor boat (left/right thrust from two FC
+   *  servo outputs instead of throttle + acceleration). Configured by tapping the widget. */
+  speedWidget: SpeedWidgetSettings;
   /** GPS widget with two receivers: 'ekf' = fused position, 'cycle' = alternate between the receivers. */
   gpsWidgetMode: 'ekf' | 'cycle';
   /** Which FC system messages (MAVLink STATUSTEXT) surface as on-screen toasts. */
@@ -485,6 +524,7 @@ const defaults: AppSettings = {
   lastBaud: 115200,
   lastProtocol: 'msp',
   defaultProtocol: 'last',
+  autoConnectNetwork: true,
   lastTransport: 'serial',
   lastHost: '',
   lastTcpPort: 5761,
@@ -501,6 +541,7 @@ const defaults: AppSettings = {
   miniMapHeadingUp: true,
   navPanelOpen: true,
   activeTab: 'uav-info',
+  chartPlotter: false,
   attitudeRateHz: 5,
   positionRateHz: 2,
   airspeedEnabled: true,
@@ -526,6 +567,8 @@ const defaults: AppSettings = {
   warnAltitudeM: 120,
   batteryAlertPct: 30,
   batterySelect: {},
+  batteryVoltageSource: {},
+  speedWidget: DEFAULT_SPEED_WIDGET,
   gpsWidgetMode: 'ekf',
   systemMessages: 'warning',
   logLevel: 'warning',
@@ -597,6 +640,19 @@ function load(): AppSettings {
           ...defaults.interface,
           ...(parsed.interface ?? {}),
         },
+        speedWidget: (() => {
+          const p = (parsed.speedWidget ?? {}) as Partial<SpeedWidgetSettings>;
+          return {
+            diffThrust: p.diffThrust === true,
+            left: servoOutputNumber(p.left, DEFAULT_SPEED_WIDGET.left),
+            right: servoOutputNumber(p.right, DEFAULT_SPEED_WIDGET.right),
+          };
+        })(),
+        // Only values the widget understands survive (a hand-edited 'esc:9' would silently show —V).
+        batteryVoltageSource: Object.fromEntries(
+          Object.entries(parsed.batteryVoltageSource ?? {})
+            .filter(([, v]) => typeof v === 'string' && (v === 'fc' || /^esc:[1-8]$/.test(v))),
+        ),
         radar: (() => {
           const dr = defaults.radar;
           const pr = (parsed.radar ?? {}) as Partial<RadarSettings>;

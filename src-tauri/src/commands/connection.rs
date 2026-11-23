@@ -546,7 +546,13 @@ fn connect_mavlink(
     // A tunnel candidate gets them AFTER the probe: ~35 commands queue for seconds on a slow uplink
     // (ELRS), and the probe behind them would time out.
     if uid2_valid {
-        mavlink_proto::handler::configure_primary(&mut *byte_transport, fc_sysid, &fc_info.fc_variant, &rates);
+        mavlink_proto::handler::configure_primary(
+            &mut *byte_transport,
+            fc_sysid,
+            &fc_info.fc_variant,
+            fc_info.platform_type,
+            &rates,
+        );
     }
 
     let flight_log_settings = FlightLogSettings {

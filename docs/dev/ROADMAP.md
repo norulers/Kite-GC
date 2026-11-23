@@ -73,6 +73,7 @@ moves up into *Shipped* once it's in a release.
 
 | Feature | Severity | Status | Notes |
 |---|---|---|---|
+| **Chart plotter dashboard** | Med | Implemented | Kip-inspired instrument column beside the map — wind rose (heading, true-wind needle, course over ground), one-minute ground-speed trend, a mission card (load file → upload to FC; the pilot then selects AUTO / NAV WP) and the square Speed widget — toggled with **DASH** in the top bar. Desktop and tablets. |
 | **Data migration framework** | High | Planned | Before 1.0, schema and format changes were hard switches that orphaned old development data. From 1.0 on, every such change needs a real migration path for data users already have. |
 | **H.265 / HEVC video** | Med | Idea | Cameras that only emit HEVC (SIYI gimbals, most IP-cam main streams) currently show no picture at all. No browser engine accepts HEVC over WebRTC, so the choice is an ffmpeg transcode (compatibility, but doubly lossy and heavy on ARM) or native decode via MSE (lossless, added latency). Whether it's worth building at all is still open — settle it with an MSE feasibility test first. |
 | **PX4 ULog (`.ulg`) import** | Med | Idea | PX4's onboard flight log — the counterpart to ArduPilot Dataflash `.bin`, which the logbook already imports. PX4 is currently the only supported platform with no full-rate log import, only MAVLink `.tlog`. The work is mostly mapping uORB topic fields onto the flight-record schema. |

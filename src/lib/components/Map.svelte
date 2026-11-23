@@ -3375,6 +3375,11 @@
   :global(html.is-mobile) :global(.leaflet-control-attribution) {
     margin-bottom: var(--safe-bottom, 0px);
   }
+  /* A right-edge overlay — the phone's widget column or the chart plotter dashboard — also pushes
+     the provider credit clear of it, like the corner buttons above. */
+  :global(.leaflet-bottom.leaflet-right) {
+    right: var(--map-inset-right, 0px);
+  }
   /* Provider credit in the app's dark theme (every platform) instead of Leaflet's white box. */
   :global(.leaflet-control-attribution) {
     background: rgba(46, 46, 46, 0.85);
