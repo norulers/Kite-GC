@@ -16,6 +16,7 @@
   import { autopilotSystem } from '$lib/stores/autopilotContext';
   import { hasMsp, isArduPilotLink } from '$lib/stores/connection';
   import { mission, missionFlags, missionLoadFile, missionUpload, onMissionUploadProgress } from '$lib/stores/mission';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import {
     arduMission, arduMissionFcSynced, loadArduMissionFromFile, markArduMissionSynced,
     parsePlanFile, parseWaypoints, framesForUpload, type ArduWaypoint,
@@ -33,6 +34,14 @@
 
   let busy = $state<'load' | 'upload' | null>(null);
   let actionStatus = $state<{ text: string; kind: StatusKind } | null>(null);
+  let confirmDialog: ReturnType<typeof ConfirmDialog>;
+
+  /** A file with several missions replaces every tab: ask when the other tabs hold waypoints. */
+  const confirmReplaceAll = async (count: number) => (await confirmDialog.show({
+    title: $t('missionMgr.replaceTitle'),
+    message: $t('missionMgr.replaceSetMsg', { values: { count: String(count) } }),
+    buttons: [{ label: $t('missionMgr.replaceYes'), value: 'replace', primary: true }],
+  })) === 'replace';
 
   const status = $derived.by(() => {
     if (actionStatus) return actionStatus;
@@ -101,8 +110,9 @@
     try {
       let count: number;
       if (inav) {
-        const m = await missionLoadFile(path);
-        count = m.waypoints.length;
+        const wps = await missionLoadFile(path, confirmReplaceAll);
+        if (!wps) return; // multi-mission file the operator declined to apply
+        count = wps.length;
       } else {
         const content = await invoke<string>('read_text_file', { path });
         const wps = /\.plan$/i.test(path) ? parsePlanFile(content) : parseWaypoints(content);
@@ -177,6 +187,8 @@
 
   <span class="status {status.kind}" title={status.text}>{status.text}</span>
 </div>
+
+<ConfirmDialog bind:this={confirmDialog} />
 
 <style>
   .card {
